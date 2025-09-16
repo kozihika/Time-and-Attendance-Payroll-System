@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= HtmlService.createHtmlOutputFromFile('css').getContent(); ?>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  </head>
+
+  <body>
+    <header>
+      <section class="welcome-message">
+        <h2 class="user-greeting">
+        <?
+          const currentUser = masterData.instructors.find((instructor)=>
+            instructor.id == loggedInUser) ;
+          if(currentUser){
+        ?>
+        <?= currentUser.name ?>さん、こんにちは！
+        <?
+          }
+        ?>
+        </h2>
+
+        <div class="monthly-fortune-section">
+          <p>
+            今月の平均運勢（<?= averageFortune ?>ポイント）:
+            <span id="average-fortune"><?= averageFortuneText ?></span>
+          </p>
+          <small>（平均運勢:0未満→凶、0以上1未満→吉、1以上→大吉）</small>
+        </div>
+      </section>
+   </header>
+
+
+    <main>
+      <section class="action-buttons">
+        <button id="clock-in-btn" disabled>出勤</button>
+        <button id="clock-out-btn"  disabled>退勤</button>
+        <button id="task-start-btn" disabled>事務作業開始</button>
+        <button id="task-end-btn" disabled>事務作業終了</button>
+        <button id="start-break-btn" disabled>休憩開始</button>
+        <button id="end-break-btn" disabled>休憩終了</button>
+      </section>
+      <section class="transportation-fee-form">
+        <label>交通費修正</label>
+        <input type="number" id="transportation-fee" placeholder="修正額（円不要）">
+        <button id="update-transportation-fee-btn" disabled>交通費を修正</button>
+      </section>
+      
+
+      <button id="logout-btn" disabled>ログアウト</button>
+
+      <div id="check-out-modal">
+        <div class="modal-content">
+          <h3>本日の担当授業を報告してください</h3>
+          <div>
+            <label for="period-selector">期間種別:</label>
+            <select id="period-selector">
+              <option value="通常">通常</option>
+              <option value="季節講習">季節講習</option>
+            </select>
+          </div>
+          <div id='task-checklist'></div>
+          <button id="submit-checkout-btn">登録完了</button>
+        </div>
+        <div id="fortune-container" style="display: none;">
+          <div id="fortune-result">
+            <p id="fortune-text"></p>
+            <p id="fortune-message"></p>
+            <p id="fortune-points"></p>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+ 
+
+    <footer></footer>
+    <script>
+      const appUrl = '<?= getAppUrl() ?>';
+      const loggedInUser = <?= loggedInUser ?>;
+      const masterData = <?!= JSON.stringify(masterData) ?>;
+      let currentStatus = "not-clocked-in";
+
+      //ページが読み込まれたら、ボタンの状態を変更
+      document.addEventListener("DOMContentLoaded", ()=>{
+        updateButtonStates(currentStatus)
+      })
+
+    // 出勤ボタンが押された時の処理
+      document.getElementById('clock-in-btn').addEventListener('click', function() {
+
+    // GAS側の`recordClockIn`関数を呼び出す
+        google.script.run
+          .withSuccessHandler(function(response) {
+            alert(response); // 成功したらGASからの返事を表示
+            currentStatus = 'working'; // 状態を「勤務中」に更新
+            updateButtonStates(currentStatus); // ボタンの状態を更新
+          })
+          .recordClockIn(loggedInUser);
+      });
+
+     document.getElementById('clock-out-btn').addEventListener('click', function() {
+
+        // 1. ポップアップで使うHTML要素を取得
+        const periodSelector = document.getElementById('period-selector');
+        const checklistContainer = document.getElementById('task-checklist');
+        const classLevels = masterData.classLevels;
+
+        // 2. 時間割リストを更新するための関数を定義
+        function updateScheduleList() {
+          const selectedPeriod = periodSelector.value;
+          // masterData.scheduleの中から、選択された期間の授業リストを取得
+          const schedule = masterData.schedule[selectedPeriod] || [];
+          
+          let tasksHtml = '';
+          
+          // 授業レベルの選択肢を準備
+          let levelOptions = '<option value="">-- 学年を選択 --</option>';
+          classLevels.forEach((level) => {
+            levelOptions += `<option value="${level.level}">${level.level}</option>`;
+          });
+
+          // 取得した授業リストでチェックリストを生成
+          schedule.forEach((classItem) => {
+            tasksHtml += `
+              <div class="task-item" data-task-name="${classItem.name}">
+                  <label>${classItem.name} (${classItem.startTime}-${classItem.endTime})</label>
+                  <select class="level-select">
+                      ${levelOptions}
+                  </select>
+              </div>
+              <hr>
+            `;
+          });
+          checklistContainer.innerHTML = tasksHtml;
+        }
+
+        // ポップアップが開かれた時に、最初の時間割リストを表示する
+        updateScheduleList(); 
+
+        // 期間プルダウンが変更されたら、時間割リストを更新する
+        periodSelector.addEventListener('change', updateScheduleList);
+        
+
+        // 最後にポップアップを表示する
+        document.getElementById('check-out-modal').style.display = 'block';
+      });
+/**
+ * 「登録完了」ボタンが押されたら、打刻履歴に担当授業と時刻を打刻する
+ * @param {} toughClasses 
+ * @param {}  
+ * @param {}
+ */
+document.getElementById('submit-checkout-btn').addEventListener('click', function() {
+  //意図していない変更を防ぐためにquerySelectorで統一
+  //task-itemはhtmlの授業選択欄
+  //task-checklistはtask-itemを外包する箱
+  const checklistContainer = document.querySelector('#task-checklist');
+  const classRows = checklistContainer.querySelectorAll('.task-item');
+  const selectedPeriod = document.getElementById("period-selector").value;  
+  const taughtClasses = [];
+  
+  // 各時限ごとの授業レベルをチェック
+  classRows.forEach(row => {
+    // data-task-nameから授業名を取得（datasetでdata-task-nameで授業時限を定義している）　n時限目の処理
+    const className = row.dataset.taskName;
+    // ドロップダウンで選択された学年を取得　optionのvalueを取り出す
+    const selectedLevel = row.querySelector('.level-select').value;
+    
+    // 学年が選択されている授業（空文字でない）だけをtaughtClasses配列に追加
+    if (selectedLevel) {
+      taughtClasses.push({
+        className: className,//授業時限
+        level: selectedLevel//担当学年
+      });
+    }
+  });
+  
+  // GAS側のrecordTaughtClasses関数を呼び出す
+  google.script.run
+    .withSuccessHandler(function(fortuneResult) {
+      Swal.fire({
+        title: '✨ 今日の運勢 ✨',
+        html: `
+          <div style="text-align:center;">
+            <img src="おみくじ筒.png" alt="おみくじの筒" style="width:100px; margin-bottom:10px; animation: shake 0.6s;">
+            <p><strong>${fortuneResult.fortune}</strong></p>
+            <p>${fortuneResult.message || ''}</p>
+            <p>ポイント: ${fortuneResult.points || 0}</p>
+          </div>
+        `,
+        confirmButtonText: 'OK',
+        showClass: {
+          popup: 'animate__animated animate__fadeInDown'
+        },
+        hideClass: {
+          popup: 'animate__animated animate__fadeOutUp'
+        }
+      }).then(() => {
+        // モーダルを閉じたら状態更新 & ページリロード
+        currentStatus = "reported";
+        updateButtonStates(currentStatus);
+        window.top.location.href = appUrl;
+      });
+    })
+    .withFailureHandler(function(error) {
+      // 失敗したらエラーメッセージを表示
+      alert("エラーが発生しました: " + error.message);
+    })
+    .recordTaughtClasses(taughtClasses, selectedPeriod);
+})
+
+
+// 作業開始ボタンが押された時の処理
+  document.querySelector('#task-start-btn').addEventListener('click', ()=>{
+    google.script.run
+      .withSuccessHandler((response)=>{
+        alert(response);
+        currentStatus = 'on-task';
+        updateButtonStates(currentStatus); 
+      })
+      .recordTaskStart(loggedInUser);
+  });
+
+//　作業終了ボタンが押された時の処理
+  document.querySelector('#task-end-btn').addEventListener('click', ()=>{
+    google.script.run
+      .withSuccessHandler((response)=>{
+        alert(response);
+        currentStatus = "working"
+        updateButtonStates(currentStatus);
+      })
+      .recordTaskEnd(loggedInUser);
+
+  });
+
+// 休憩開始ボタンが押された時の処理
+  document.querySelector('#start-break-btn').addEventListener('click', ()=>{
+    google.script.run
+      .withSuccessHandler((response)=>{
+        alert(response);
+        currentStatus = 'on-break'; // 状態を「勤務中」に更新
+        updateButtonStates(currentStatus); 
+      })
+      .recordBreakStart(loggedInUser);
+  });
+
+// 休憩終了ボタンが押された時の処理
+document.querySelector("#end-break-btn").addEventListener("click", ()=>{
+  google.script.run
+    .withSuccessHandler((response)=>{
+      alert(response);
+      currentStatus = 'working'
+      updateButtonStates(currentStatus);
+    })
+    .recordBreakEnd(loggedInUser);
+});
+
+//交通費修正ボタンが押された時の処理
+document.getElementById("update-transportation-fee-btn").addEventListener("click", ()=>{
+  const updatedFee = document.getElementById("transportation-fee").value;
+  google.script.run
+    .withSuccessHandler((response)=>{
+      alert(response);
+    })
+    .updateTransportationFee(updatedFee);
+})
+
+
+
+function updateButtonStates(status){
+    // statusに応じて、押せるボタンだけを有効化する
+  if (status === 'not-clocked-in') {
+    document.getElementById('clock-in-btn').disabled = false;
+    document.getElementById("logout-btn").disabled = false;
+  } else if (status === 'working') {
+    document.getElementById('clock-in-btn').disabled = true;
+    document.getElementById('end-break-btn').disabled = true;
+    document.getElementById('task-end-btn').disabled = true;
+    document.getElementById("update-transportation-fee-btn").disabled = false;
+    document.getElementById('clock-out-btn').disabled = false;
+    document.getElementById('task-start-btn').disabled = false;
+    document.getElementById('start-break-btn').disabled = false;
+  } else if (status === 'on-task') {
+    document.getElementById('clock-out-btn').disabled = true;
+    document.getElementById('task-start-btn').disabled = true;
+    document.getElementById('start-break-btn').disabled = true;
+    document.getElementById("logout-btn").disabled = true;
+    document.getElementById('task-end-btn').disabled = false;
+  } else if (status === 'on-break') {
+    document.getElementById('clock-out-btn').disabled = true;
+    document.getElementById('task-start-btn').disabled = true;
+    document.getElementById('start-break-btn').disabled = true;
+    document.getElementById("logout-btn").disabled = true;
+    document.getElementById('end-break-btn').disabled = false;
+  }else if (status === "reported") {
+    document.getElementById("logout-btn").disabled = false;
+
+  }
+}
+
+
+//  ログアウトボタンが押された時の処理
+
+    document.getElementById('logout-btn').addEventListener('click', function() {
+    // GAS側の`logout`関数を呼び出す
+      google.script.run
+        .withSuccessHandler(function() {
+      // ログアウトが成功したら、ページを再読み込みする
+      // doGetが再実行され、今度はログイン画面に移動する
+          window.top.location.href = appUrl;; //インラインフレームでブロックされるため、ブラウザのウィンドウ（トップページ）に対して移動を命じる
+        })
+        .logout();
+    });
+    </script>
+  </body>
+</html>

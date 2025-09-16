@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= HtmlService.createHtmlOutputFromFile('css').getContent(); ?>
+  </head>
+  <body>
+    <div class='login-container'>
+      <h1>勤怠管理システム ログイン</h1>
+
+      <div>
+        <label for='user-id'>ユーザid</label>
+        <input type='text' id="user-id">
+      </div>
+      <div>
+        <label for='password'>パスワード</label>
+        <input type="password" id="password">
+        </div>
+      <button id="login-btn">ログインする</button>
+      <div id='error-message'></div>
+    </div>
+
+    <script>
+      const appUrl = '<?= getAppUrl() ?>';
+      document.getElementById('login-btn').addEventListener('click', ()=>{
+        
+        const userId = document.getElementById('user-id').value;
+        const password = document.getElementById('password').value;
+        const errorMessage = document.getElementById('error-message');
+
+        google.script.run
+          .withSuccessHandler((isSuccess)=>{
+            if(isSuccess){
+              window.top.location.href = appUrl;
+            }else{
+              errorMessage.textContent = 'ユーザidまたはパスワードが違います。';
+            }
+          })
+          .authenticateUser(userId, password);
+      })
+    </script>
+  </body>
+</html>

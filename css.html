@@ -1,0 +1,59 @@
+<style>
+  body {
+    margin: 30px;
+    color: black;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 20px 0;
+  }
+  .btn {
+    margin: 20px 0;
+    width: 150px;
+  }
+  .btn-frame {
+    text-align: center;
+  }
+
+  #login-btn {
+    background-color: #5dca88;
+    box-shadow: 0 5px #1a7940;  
+  }
+
+  #login-btn: active {
+    box-shadow: none;
+    position: relative;
+    top: 5px;
+  }
+
+  #check-out-modal {
+    display: none;
+  }
+
+  /* 筒が震えるアニメーション */
+  @keyframes shake {
+    0% { transform: translate(0, 0); }
+    25% { transform: translate(-2px, 2px); }
+    50% { transform: translate(2px, -2px); }
+    75% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0, 0); }
+  }
+
+  .shake-animation {
+    animation: shake 0.5s;
+  }
+
+  /* 結果がスッと出てくるアニメーション */
+  #fortune-result {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.5s, transform 0.5s;
+  }
+
+  #fortune-result.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+</style>

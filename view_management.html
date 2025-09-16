@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= HtmlService.createHtmlOutputFromFile('css').getContent(); ?>
+  </head>
+  <body>
+    <header>
+      <h1>塾長専用ダッシュボード</h1>
+    </header>
+
+    <main>
+      <section class="filter-area">
+        <select id="instructor-selector"></select>
+        <input type="month" id="month-selector">
+        <button id="view-button">表示</button>
+      </section>
+
+      <section class="summary-area">
+        <div class="summary-card">
+          <h2>今月の総支給額</h2>
+          <p id="monthly-total">---円</p>
+        </div>
+        <div class="summary-card">
+          <h2>今年の累計支給額</h2>
+          <p id="yearly-total">---円</p>
+        </div>
+      </section>
+
+      <section class="detail-area">
+        <h3>今月の内訳</h3>
+        <p>コマ給: <span id="monthly-koma">---</span>円</p>
+        <p>事務作業給: <span id="monthly-task">---</span>円</p>
+        <p>交通費：<span id="monthly-transportation-fee">---</span>円</p>
+      </section>
+
+      <button id="finalize-monthly-payroll">給与を締める</button>
+
+      <button id="logout-btn">ログアウト</button>
+    </main>
+
+    <script>
+      const appUrl = '<?= getAppUrl() ?>';
+      const masterData = <?!= JSON.stringify(masterData) ?>;
+
+      document.addEventListener('DOMContentLoaded', function() {
+        const instructorSelect = document.getElementById('instructor-selector');
+        const monthSelect = document.getElementById('month-selector');
+        const viewButton = document.getElementById('view-button');
+
+        // --- 1. 講師選択プルダウンを生成 ---
+        const defaultOption = document.createElement('option');
+        defaultOption.value = "";
+        defaultOption.textContent = "-- 講師を選択 --";
+        instructorSelect.appendChild(defaultOption);
+        //option valueにid,選択肢に講師名を追加
+        masterData.instructors.forEach(function(instructor) {
+          if(instructor.role === '講師') { // 塾長はリストに含めない
+            const option = document.createElement('option');
+            option.value = instructor.id;
+            option.textContent = instructor.name;
+            instructorSelect.appendChild(option);
+          }
+        });
+
+        // --- 2. 「表示」ボタンが押された時の処理 ---
+        viewButton.addEventListener('click', function() {
+          const targetInstructorId = instructorSelect.value;
+          const targetYearMonth = monthSelect.value;
+
+          if (!targetInstructorId || !targetYearMonth) {
+            alert('講師と対象月を両方選択してください。');
+            return;
+          }
+          
+          // GASの計算関数を呼び出す
+          google.script.run
+            .withSuccessHandler(function(salaryData) {
+              if (salaryData.error) {
+                alert(salaryData.error);
+                return;
+              }
+              // --- 3. 受け取ったデータで画面を更新 ---
+              document.getElementById('monthly-total').textContent = salaryData.monthly.total + '円';
+              document.getElementById('yearly-total').textContent = salaryData.yearly.total + '円';
+              document.getElementById('monthly-koma').textContent = salaryData.monthly.komaSalary;
+              document.getElementById('monthly-task').textContent = salaryData.monthly.taskSalary;
+              document.getElementById('monthly-transportation-fee').textContent = salaryData.monthly.transportationFee;
+            })
+            .withFailureHandler(function(error) {
+              alert('エラーが発生しました: ' + error.message);
+            })
+            .getSalaryDataForManagement(targetInstructorId, targetYearMonth);
+        });
+
+        //給与締めボタンが押された時に、締め管理シートに締めの状況を記載するために、closeMonth関数に選択した月を渡す。
+        document.getElementById('finalize-monthly-payroll').addEventListener('click', ()=>{
+          const targetYearMonth = document.getElementById('month-selector').value;
+
+          if(!targetYearMonth){
+            alert('対象月を選択してください');
+            return;
+          }
+          if(confirm(targetYearMonth+'を締め切ります。よろしいですか？')){
+            google.script.run
+              .withSuccessHandler((message)=>{
+                alert(message);
+              })
+              .closeMonth(targetYearMonth);
+          }
+        });
+
+        //月が選ばれたら締めボタンの表示を、選択された月＋締めボタンにする
+        const monthSelector = document.getElementById('month-selector');
+        const finalizeButton = document.getElementById('finalize-monthly-payroll');
+
+        finalizeButton.addEventListener('change', ()=>{
+          const selectedMonth = monthSelector.value;
+          if(selectedMonth){
+            finalizeButton.textContent = `${selectedMonth}の給与を締める`;
+          }else{
+            alert('対象月を選択してください');
+          }
+        });
+
+        //  ログアウトボタンが押された時の処理
+        document.getElementById('logout-btn').addEventListener('click', function() {
+        // GAS側の`logout`関数を呼び出す
+          google.script.run
+            .withSuccessHandler(function() {
+          // ログアウトが成功したら、ページを再読み込みする
+            window.top.location.href = appUrl; //インラインフレームでブロックされるため、ブラウザのウィンドウ（トップページ）に対して移動を命じる
+          })
+            .logout();
+        });
+      });
+    </script>
+  </body>
+</html>
